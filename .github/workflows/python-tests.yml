@@ -1,0 +1,66 @@
+name: Python tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.11", "3.12"]
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Check Python syntax
+        run: python -m py_compile pdptw_solver.py
+
+      - name: Run solver smoke test
+        env:
+          MPLBACKEND: Agg
+        run: |
+          python - <<'PY'
+          from pdptw_solver import PDPTWSolver, create_test_data
+
+          data = create_test_data(num_requests=3, grid_size=100)
+          solver = PDPTWSolver(data)
+
+          assert solver.solve(time_limit_seconds=5), "Solver did not find a solution"
+
+          solution = solver.get_solution()
+          assert solution["total_distance"] >= 0
+          assert len(solution["routes"]) == data["num_vehicles"]
+
+          for pickup, delivery in data["pickups_deliveries"]:
+              serving_routes = [
+                  route["route"]
+                  for route in solution["routes"]
+                  if pickup in route["route"] or delivery in route["route"]
+              ]
+              assert len(serving_routes) == 1, (
+                  f"Pickup {pickup} and delivery {delivery} are not on the same route"
+              )
+              route = serving_routes[0]
+              assert route.index(pickup) < route.index(delivery), (
+                  f"Delivery {delivery} occurs before pickup {pickup}"
+              )
+
+          print("PDPTW smoke test passed")
+          PY
